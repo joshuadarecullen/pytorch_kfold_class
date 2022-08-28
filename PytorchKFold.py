@@ -7,7 +7,7 @@ from torch import nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
-Class PytorchKFold:
+class PytorchKFold:
 
     def __init__(self, model, criterion, dataset, optim, k=10, epochs=100, batch_size=32,
             lr=0.001, random_state=0, kd_shuffle=True, PATH=None
