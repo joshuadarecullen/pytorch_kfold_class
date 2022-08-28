@@ -3,8 +3,26 @@ from PytorchKFold import *
 from aif360.datasets import AdultDataset
 from aif360.algorithms.preprocessing.optim_preproc_helpers.data_preproc_functions import load_preproc_data_adult
 from sklearn.preprocessing import StandardScaler
+import torch.optim as optimiser
+import torch.Dataset as Dataset
 
-from utils.my_ml_algs import CustomDataset as Dataset
+
+### Collection of utils used throughout the code
+# Simple pytorch custom data to structure features and labels
+class CustomDataset(Dataset):
+
+    def __init__(self, labels, features):
+        self.labels = labels
+        self.features = features
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        feature = self.features[idx]
+        label = self.labels[idx]
+        return feature, label
+
 
 class LogisticRegression(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -13,6 +31,7 @@ class LogisticRegression(nn.Module):
         
     def forward(self, x):
         return torch.sigmoid(self.linear(x))
+
 
 if __name__ == "__main__":
 
@@ -49,6 +68,7 @@ if __name__ == "__main__":
 
     # set up model and loss 
     criterion = nn.BCELoss()
-    model = LogisticalRegression(18).double()
+    model = LogisticalRegression(X_train_t.shape[1]).double()
+    optim = optimiser.Adam(model.parameters())
 
     kfold = PytorchKFold(model, criterion, train_dataset, optim, k=1)
