@@ -1,10 +1,22 @@
 from PytorchKFold import *
 
-from aif360.datasets import AdultDataset
-from aif360.algorithms.preprocessing.optim_preproc_helpers.data_preproc_functions import load_preproc_data_adult
+from aif360.algorithms.preprocessing.optim_preproc_helpers.data_preproc_functions import load_preproc_data_german
 from sklearn.preprocessing import StandardScaler
+
+import torch
+from torch import nn
 import torch.optim as optimiser
-import torch.utils.data as Dataset
+from torch.utils.data import Dataset
+
+import numpy as np
+
+
+class LogisticRegression(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(LogisticRegression, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
+    def forward(self, x):
+        return torch.sigmoid(self.linear(x))
 
 
 ### Collection of utils used throughout the code
@@ -24,14 +36,6 @@ class CustomDataset(Dataset):
         return feature, label
 
 
-class LogisticRegression(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(LogisticRegression, self).__init__()
-        self.linear = nn.Linear(input_dim, output_dim)
-    def forward(self, x):
-        return torch.sigmoid(self.linear(x))
-
-
 if __name__ == "__main__":
 
     #STEP 2: We define where's the bias in the features of our dataset.
@@ -41,7 +45,7 @@ if __name__ == "__main__":
     np.random.seed(0)
 
     # load data in repsect to sex
-    dataset_orig = load_preproc_data_adult(['sex'])
+    dataset_orig = load_preproc_data_german(['sex'])
 
     #STEP 3: We split between training and test set.
     train, test = dataset_orig.split([0.7], shuffle=True)
@@ -68,7 +72,10 @@ if __name__ == "__main__":
 
     # set up model and loss 
     criterion = nn.BCELoss()
-    model = LogisticalRegression(in_feature).double()
+    model = LogisticRegression(in_feature, 1).double()
     optim = optimiser.Adam(model.parameters())
 
-    kfold = PytorchKFold(model, criterion, train_dataset, optim, k=1, lr=lr, batch_size=batch_size, epochs=num_epochs)
+    model_train = PytorchKFold(model, criterion, train_dataset, optim, k=3, lr=lr, batch_size=batch_size, epochs=num_epochs)
+
+    # print(model_train.kfold)
+    k_avrgs = model_train.run_kfold()

@@ -4,40 +4,40 @@ import numpy as np
 
 import torch
 from torch import nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 
 class PytorchKFold:
 
     def __init__(self, model, criterion, dataset, optim, k=10, epochs=100, batch_size=32,
-            lr=0.001, random_state=0, kd_shuffle=True, PATH=None,
+            lr=0.001, random_state=42, kf_shuffle=True, PATH=None,
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
 
         # torch.manual_seed(random_state)
         self.model = model.to(device)
-        self.optim = optim.to(device)
-        self.criterion = criterion.to(device)
+        self.optim = optim
+        self.criterion = criterion
         self.dataset = dataset
 
         # save model, optimiser and hyperparameters
         self.PATH = PATH
 
         # Hyper parameters
-        self.k = 10
+        self.k = k
         self.epochs = epochs
         self.batch_size = batch_size
-        self.wd = wd
+        # self.wd = wd
         self.lr = lr
 
         # reproducability states and shuffle states
         self.random_state = random_state
-        self.kd_shuffle = kd_shuffle
+        self.kf_shuffle = kf_shuffle
 
         # device training done on
         self.device = device
         self.reset_optim = optim.state_dict()
 
         # split data into train and validation
-        self.kfold = KFold(n_splits = self.k, shuffle = self.kf_shuffle, random_state = self.random_state)
+        self.kfold = KFold(n_splits = self.k, shuffle = True, random_state = self.random_state)
 
         # Data collected from all folds
         self.all_folds_history = {}
@@ -50,13 +50,13 @@ class PytorchKFold:
         self.astype = lambda x, *args, **kwargs: x.type(*args, **kwargs)
 
 
-    def kfold(self):
+    def run_kfold(self):
 
         # keep track of performance and fairness metrics over epochs
         avr_metrics = Accumulator(4)
 
         # main kfold loop
-        for fold, (train_idx, val_idx) in enumerate(kfold.split(self.dataset)):
+        for fold, (train_idx, val_idx) in enumerate(self.kfold.split(self.dataset)):
  
             print(f'Fold {fold+1}')
 
@@ -65,7 +65,7 @@ class PytorchKFold:
             self.optim.load_state_dict(self.reset_optim)
 
             # get subset of training data given the kfold indices 
-            train_sub, val_sub = self.get_kfold_data(self.dataset, train_idx, val_idx)
+            train_sub, val_sub = self.get_kfold_data(train_idx, val_idx)
 
             # set the dataloaders
             train_loader = DataLoader(train_sub, batch_size=self.batch_size,
@@ -77,7 +77,7 @@ class PytorchKFold:
             # Main training loop
             train_loss, train_acc, val_loss, val_acc, train_history = self.train(train_loader, val_loader)
 
-            if PATH:
+            if self.PATH:
                 # Save the state of the models parameters
                 torch.save({
                         'epoch': self.epochs,
@@ -87,7 +87,7 @@ class PytorchKFold:
                         }, self.PATH + f'fold-{fold+1}.pth')
 
             # Final predictions using validation set for fairness metrics
-            predictions, probs, true, accuracy = predict(val_loader)
+            predictions, probs, true, accuracy = self.predict(val_loader)
 
             avr_metrics.add(train_loss,
                             train_acc,
@@ -98,7 +98,7 @@ class PytorchKFold:
             self.all_folds_history[f'Fold:{fold+1}'] = train_history
             self.all_folds_predictions[f'Fold:{fold+1}'] = predictions
             self.all_folds_true[f'fold:{fold+1}'] = true
-            self.all_folds_probability[f'fold:{fold+1}'] = probs
+            self.all_folds_probabilities[f'fold:{fold+1}'] = probs
             self.all_folds_val[f'fold:{fold+1}'] = accuracy
 
             # accumulate the fold metrics
@@ -132,7 +132,7 @@ class PytorchKFold:
         self.model.train()
 
         for features, labels in data_iter:
-            features, labels = features.to(device), labels.to(device)
+            features, labels = features.to(self.device), labels.to(self.device)
 
             # Foward pass
             y_hat = self.model(features)
@@ -164,7 +164,7 @@ class PytorchKFold:
         metrics = Accumulator(4)
 
         # Training loop
-        for epoch in range(self.num_epochs):
+        for epoch in range(self.epochs):
             train_metrics = self.train_epoch(train_loader)
             test_metrics = self.evaluate_accuracy(val_loader)
 
@@ -177,12 +177,12 @@ class PytorchKFold:
             # Track epoch loss and acc for both train and val data
             metrics.add(train_metrics[0], train_metrics[1], test_metrics[0], test_metrics[1])
 
-        return (metrics[0]/num_epochs, metrics[1]/num_epochs, metrics[2]/num_epochs, metrics[3]/num_epochs, history)
+        return (metrics[0]/self.epochs, metrics[1]/self.epochs, metrics[2]/self.epochs, metrics[3]/self.epochs, history)
 
 
     # Predict given a model and dataset for datasets with only label and features
     def predict(self, data_iter):
-        if isinstance(net, torch.nn.Module):
+        if isinstance(self.model, torch.nn.Module):
             self.model.eval()  # Set the model to evaluation mode
 
         y_pred = []
@@ -192,7 +192,7 @@ class PytorchKFold:
         metric = Accumulator(2)  # No. of correct predictions, no. of predictions
         with torch.no_grad():
             for X,y in data_iter:
-                X, y = X.to(device), y.to(device)
+                X, y = X.to(self.device), y.to(self.device)
                 output = self.model(X)
                 out = output.detach().clone()
                 y_probs = out.data.cpu().numpy() #send to cpu to save
@@ -231,7 +231,7 @@ class PytorchKFold:
     def accuracy(self, y_hat, y):
         y_hat = torch.round(y_hat)
         cmp = self.astype(y_hat, y.dtype) == y # convert y_hat into a data type that matches y 
-        correct = float(lam.reduce_sum(self.astype(cmp, y.dtype))) # Taking the sum yields the number of correct predictions.
+        correct = float(self.reduce_sum(self.astype(cmp, y.dtype))) # Taking the sum yields the number of correct predictions.
         return correct
 
 
@@ -245,7 +245,7 @@ class PytorchKFold:
         metric = Accumulator(3)  # No. of correct predictions, no. of predictions
         with torch.no_grad():
             for X, y in data_iter:
-                X, y = X.to(device), y.to(device)
+                X, y = X.to(self.device), y.to(self.device)
                 output = self.model(X)
                 loss = self.criterion(output, y)
                 metric.add(float(loss.sum()), self.accuracy((X),y), y.numel())
