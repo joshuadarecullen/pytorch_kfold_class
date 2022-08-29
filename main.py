@@ -4,7 +4,7 @@ from aif360.datasets import AdultDataset
 from aif360.algorithms.preprocessing.optim_preproc_helpers.data_preproc_functions import load_preproc_data_adult
 from sklearn.preprocessing import StandardScaler
 import torch.optim as optimiser
-import torch.Dataset as Dataset
+import torch.utils.data as Dataset
 
 
 ### Collection of utils used throughout the code
@@ -27,8 +27,7 @@ class CustomDataset(Dataset):
 class LogisticRegression(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(LogisticRegression, self).__init__()
-        self.linear = nn.Linear(input_dim, output_dim)     
-        
+        self.linear = nn.Linear(input_dim, output_dim)
     def forward(self, x):
         return torch.sigmoid(self.linear(x))
 
@@ -59,16 +58,17 @@ if __name__ == "__main__":
     y_train_labels = torch.tensor(y_train.reshape(-1,1), dtype=torch.float64)
     y_test_labels = torch.tensor(y_test.reshape(-1,1), dtype=torch.float64)
 
-    train_dataset = Dataset(y_train_labels, X_train_t)
-    test_dataset = Dataset(y_test_labels, X_test_t)
+    # create pytorch dataset
+    train_dataset = CustomDataset(y_train_labels, X_train_t)
+    test_dataset = CustomDataset(y_test_labels, X_test_t)
 
     # Initial parameters
-    k, num_epochs, lr, batch_size, in_feature = 5, 100, 0.001, 64, 18
-    weight_decay = {'wd2': 1000,'wd3': 100,'wd4': 10,'wd5': 1 ,'wd6': 0.1, 'wd7': 0.01,'wd8': 0.001}
+    k, num_epochs, lr, batch_size, in_feature = 1, 100, 0.001, 64, X_train_t.shape[1]
+    # weight_decay = {'wd2': 1000,'wd3': 100,'wd4': 10,'wd5': 1 ,'wd6': 0.1, 'wd7': 0.01,'wd8': 0.001}
 
     # set up model and loss 
     criterion = nn.BCELoss()
-    model = LogisticalRegression(X_train_t.shape[1]).double()
+    model = LogisticalRegression(in_feature).double()
     optim = optimiser.Adam(model.parameters())
 
-    kfold = PytorchKFold(model, criterion, train_dataset, optim, k=1)
+    kfold = PytorchKFold(model, criterion, train_dataset, optim, k=1, lr=lr, batch_size=batch_size, epochs=num_epochs)

@@ -9,8 +9,8 @@ from torch.utils.data import Dataset, DataLoader
 class PytorchKFold:
 
     def __init__(self, model, criterion, dataset, optim, k=10, epochs=100, batch_size=32,
-            lr=0.001, random_state=0, kd_shuffle=True, PATH=None
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"):
+            lr=0.001, random_state=0, kd_shuffle=True, PATH=None,
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
 
         # torch.manual_seed(random_state)
         self.model = model.to(device)
@@ -94,33 +94,33 @@ class PytorchKFold:
                             val_loss,
                             val_acc)
 
-        # update performance trackers
-        self.all_folds_history[f'Fold:{fold+1}'] = train_history
-        self.all_folds_predictions[f'Fold:{fold+1}'] = predictions
-        self.all_folds_true[f'fold:{fold+1}'] = true
-        self.all_folds_probability[f'fold:{fold+1}'] = probs
-        self.all_folds_val[f'fold:{fold+1}'] = accuracy
+            # update performance trackers
+            self.all_folds_history[f'Fold:{fold+1}'] = train_history
+            self.all_folds_predictions[f'Fold:{fold+1}'] = predictions
+            self.all_folds_true[f'fold:{fold+1}'] = true
+            self.all_folds_probability[f'fold:{fold+1}'] = probs
+            self.all_folds_val[f'fold:{fold+1}'] = accuracy
 
-        # accumulate the fold metrics
-        avr_metrics.add(train_loss,
-                        train_acc,
-                        val_loss,
-                        val_acc)
+            # accumulate the fold metrics
+            avr_metrics.add(train_loss,
+                            train_acc,
+                            val_loss,
+                            val_acc)
 
-        # print loss and accuracy metrics
-        print(f'Train loss: {train_loss}')
-        print(f'Validation accuracy: {accuracy}')
+            # print loss and accuracy metrics
+            print(f'Train loss: {train_loss}')
+            print(f'Validation accuracy: {accuracy}')
 
 
-    # Calculate Averages across the folds
-    self.kfolds_avergs = {'num_folds': k,
-                   'train_loss': [avr_metrics[0]/k],
-                   'train_acc':[avr_metrics[1]/k],
-                   'val_loss': [avr_metrics[2]/k],
-                   'val_acc': [avr_metrics[3]/k],
-                   }
+        # Calculate Averages across the folds
+        self.kfolds_avergs = {'num_folds': k,
+                       'train_loss': [avr_metrics[0]/k],
+                       'train_acc':[avr_metrics[1]/k],
+                       'val_loss': [avr_metrics[2]/k],
+                       'val_acc': [avr_metrics[3]/k],
+                       }
 
-    return self.kfolds_avrgs
+        return self.kfolds_avergs
 
 
     # Training loop
