@@ -19,7 +19,6 @@ class LogisticRegression(nn.Module):
         return torch.sigmoid(self.linear(x))
 
 
-### Collection of utils used throughout the code
 # Simple pytorch custom data to structure features and labels
 class CustomDataset(Dataset):
 
@@ -67,15 +66,14 @@ if __name__ == "__main__":
     test_dataset = CustomDataset(y_test_labels, X_test_t)
 
     # Initial parameters
-    k, num_epochs, lr, batch_size, in_feature = 1, 100, 0.001, 64, X_train_t.shape[1]
-    # weight_decay = {'wd2': 1000,'wd3': 100,'wd4': 10,'wd5': 1 ,'wd6': 0.1, 'wd7': 0.01,'wd8': 0.001}
+    k, num_epochs, lr, batch_size, in_feature = 5, 100, 0.001, 10, X_train_t.shape[1]
 
     # set up model and loss 
     criterion = nn.BCELoss()
     model = LogisticRegression(in_feature, 1).double()
     optim = optimiser.Adam(model.parameters())
 
-    model_train = PytorchKFold(model, criterion, train_dataset, optim, k=3, lr=lr, batch_size=batch_size, epochs=num_epochs)
+    model_train = PytorchKFold(model, criterion, train_dataset, optim, k=k, lr=lr, batch_size=batch_size, epochs=num_epochs)
 
     # print(model_train.kfold)
     k_avrgs = model_train.run_kfold()
