@@ -34,7 +34,7 @@ class Pytorch_KFold_Adversary:
         self.batch_size = batch_size
         # self.wd = wd
         self.lr = lr
-        self.adv_loss_weight = adv_loss_weight.to(device) if adv_loss_weight else None
+        # self.adv_loss_weight = adv_loss_weight.to(device) if adv_loss_weight else None
 
         # reproducability states and shuffle states
         self.random_state = random_state
@@ -53,8 +53,10 @@ class Pytorch_KFold_Adversary:
         # Set-up functions
         self.accuracy = self.accuracyCE if self.non_binary[0] else self.accuracyBCE
         self.get_adv_accuracy = self.get_adv_accuracyCE if self.non_binary[1] else self.get_adv_accuracyBCE
-        self.train_func =  self.train_adv_eq_opp if self.measure else self.train_adv_proj_eq_odds
         self.predict = self.predict_adv_equal_opp if self.measure else self.predict_adv
+
+        # set fairness training method for the adversarial
+        self.train_func =  self.train_adv_proj_eq_opp if self.measure else self.train_adv_proj_eq_odds
 
         # Data collected from all folds
         self.all_folds_history = {}
@@ -70,7 +72,6 @@ class Pytorch_KFold_Adversary:
 
 
     def run_kfold(self, adv_loss_weight=None):
-        print(adv_loss_weight)
 
         if adv_loss_weight:
             self.adv_loss_weight = adv_loss_weight.to(self.device)
@@ -98,7 +99,6 @@ class Pytorch_KFold_Adversary:
             self.adv_model.apply(init_weights)
             self.cl_optim.load_state_dict(self.reset_optim_cl)
             self.adv_optim.load_state_dict(self.reset_optim_adv)
-
 
             # main train function call, handles pre training as well.
             ptclf_acc, ptadv_acc, cl_train_loss, adv_train_loss, adv_train_acc, cl_train_acc, history = self.train_func(train_loader)
@@ -142,6 +142,82 @@ class Pytorch_KFold_Adversary:
                        }
 
         return self.kfolds_avergs
+
+
+    # Main training loop for adversarial debiasing with the projection term
+    def train_adv_proj_eq_opp(self, dataset, pre_epoch=5):
+
+        self.adv_model.train()
+        self.cl_model.train()
+
+        # pre-train both models 
+        ptclf_loss, ptclf_acc, ptclf_history = self.pre_train_class(dataset, N_CLF_EPOCHS=pre_epoch)
+        ptadv_loss, ptadv_acc, ptadv_cl_acc, ptadv_history = self.pre_train_ad(dataset, N_ADV_EPOCHS=pre_epoch)
+
+        history = {'adv_train_loss_debias': [],'adv_train_acc_debias': [], 'cl_train_loss_debias': [], 'cl_train_acc_debias': []}
+        epoch_met = Accumulator(5)
+
+        # Main trainig loop, the adversary is trained on whole dataset to hold the advantage
+        for epoch in range(1, self.epochs):
+            metric = Accumulator(7)
+
+            self.adv_model.train()
+            self.cl_model.train()
+
+            for features, labels, sensitive in dataset:
+                features, labels, sensitive = features.to(self.device), labels.to(self.device), sensitive.to(self.device)
+
+                self.cl_optim.zero_grad()
+                self.adv_optim.zero_grad()
+
+                idx = self.get_idx(labels)
+
+                # get next batch if no y = 1 labels
+                if len(idx) == 0:
+                    continue
+
+                # classifier prediction
+                cl_pred = self.cl_model(features)
+
+                # adversary sees both the ground truth and the classifiers prediction
+                z = torch.cat((cl_pred, labels), 1)
+                protect_pred = self.adv_model(z)
+
+                pred_loss = self.cl_criterion(cl_pred, labels)
+                protect_loss = self.adv_criterion(protect_pred[idx], sensitive[idx])
+
+                protect_loss.backward(retain_graph=True) # keep graph to use
+                protect_grad = {name: param.grad.clone() for name, param in self.cl_model.named_parameters()} # grab gradient
+
+                self.adv_optim.step()
+
+                self.cl_optim.zero_grad()
+                pred_loss.backward()
+
+                with torch.no_grad():
+                    for name, param in self.cl_model.named_parameters():
+                        unit_protect = self.normalize(protect_grad[name]) # grabbing the norm of the classifiers gradient
+                        param.grad -= ((param.grad * unit_protect) * unit_protect.sum()) # projection
+                        param.grad -= self.adv_loss_weight * protect_grad[name] # hurting the adversary
+
+                self.cl_optim.step()
+
+                metric.add(float(pred_loss), float(protect_loss), self.get_adv_accuracy(protect_pred[idx], sensitive[idx]), self.accuracy(cl_pred,labels), labels.numel(), labels[idx].numel(), 1)
+
+            history['adv_train_loss_debias'].append(metric[1]/metric[6])
+            history['adv_train_acc_debias'].append(metric[2]/metric[5])
+            history['cl_train_acc_debias'].append(metric[3]/metric[4])
+            history['cl_train_loss_debias'].append(metric[0]/metric[6])
+
+            # adv_train_loss, adv accurac, cl acc, cl loss - debiased
+            epoch_met.add(metric[1]/metric[6], metric[2]/metric[5], metric[3]/metric[4], metric[0]/metric[6])
+
+        # print(f'classifier final train loss--> {epoch_met[3]/self.epochs}')
+        # print(f'classifier final train acc--> {epoch_met[2]/epochs}')
+        # print(f'Adversary final train loss--> {epoch_met[0]/self.epochs}')
+        # print(f'Adversary final train accuracy--> {epoch_met[1]/epochs}')
+
+        return (ptclf_acc, ptadv_acc, epoch_met[3]/self.epochs, epoch_met[0]/self.epochs, epoch_met[1]/self.epochs, epoch_met[2]/self.epochs, history)
 
 
     # Main training loop for adversarial debiasing with the projection term
@@ -191,6 +267,7 @@ class Pytorch_KFold_Adversary:
                 with torch.no_grad():
                     for name, param in self.cl_model.named_parameters():
                         unit_protect = self.normalize(protect_grad[name]) # grabbing the norm of the classifiers gradient
+                        # comment out these two lines for no debiasing
                         param.grad -= ((param.grad * unit_protect) * unit_protect.sum()) # projection
                         param.grad -= self.adv_loss_weight * protect_grad[name] # hurting the adversary
 
@@ -206,9 +283,9 @@ class Pytorch_KFold_Adversary:
             # adv_train_loss, adv accurac, cl acc, cl loss - debiased
             epoch_met.add(metric[1]/metric[5], metric[2]/metric[4], metric[3]/metric[4], metric[0]/metric[5])
 
-        print(f'classifier final train loss--> {epoch_met[3]/self.epochs}')
+        # print(f'classifier final train loss--> {epoch_met[3]/self.epochs}')
         # print(f'classifier final train acc--> {epoch_met[2]/epochs}')
-        print(f'Adversary final train loss--> {epoch_met[0]/self.epochs}')
+        # print(f'Adversary final train loss--> {epoch_met[0]/self.epochs}')
         # print(f'Adversary final train accuracy--> {epoch_met[1]/epochs}')
 
         return (ptclf_acc, ptadv_acc, epoch_met[3]/self.epochs, epoch_met[0]/self.epochs, epoch_met[1]/self.epochs, epoch_met[2]/self.epochs, history)
@@ -513,8 +590,8 @@ class Pytorch_KFold_Adversary:
         yprob = np.asarray(y_prob)
         sprob = np.asarray(s_prob)
 
-        print(f'classifier validation accuracy: {metric[0]/metric[2]*100}')
-        print(f'adversary accuracy: {metric[1]/metric[2]*100}')
+        # print(f'classifier validation accuracy: {metric[0]/metric[2]*100}')
+        # print(f'adversary accuracy: {metric[1]/metric[2]*100}')
 
         # Return predictions and accuracy
         return  (ypred, yprob, ytrue, sprob, (metric[0]/metric[2])*100, (metric[1]/metric[2])*100)
