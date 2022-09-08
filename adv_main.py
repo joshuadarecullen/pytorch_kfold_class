@@ -75,17 +75,18 @@ if __name__ == "__main__":
             kf_shuffle=True)
 
     # set hyperparameter values
-    adv_loss_weights = { 'alw1': 0.1,
-                         'alw2': 0.2,
-                         'alw3': 0.3,
-                         'alw4': 0.4,
-                         'alw5': 0.5,
-                         'alw6': 0.6,
-                         'alw7': 0.7,
-                         'alw8': 0.8,
-                         'alw9': 0.9,
-                         'alw10': 1,
-                         }
+    adv_loss_weights = {
+                        'alw1': 0.1,
+                        'alw2': 0.2,
+                        'alw3': 0.3,
+                        'alw4': 0.4,
+                        'alw5': 0.5,
+                        'alw6': 0.6,
+                        'alw7': 0.7,
+                        'alw8': 0.8,
+                        'alw9': 0.9,
+                        'alw10': 1
+                        }
 
     # Keep track of averages of 5 folds for each lambda, fold, model history
     k_folds_data = {}
