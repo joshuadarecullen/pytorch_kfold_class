@@ -4,11 +4,13 @@ import numpy as np
 
 import torch
 from torch import nn
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import DataLoader, Subset
+
+from utils import Accumulator, init_weights
 
 class PytorchKFold:
 
-    def __init__(self, model, criterion, dataset, optim, k=10, epochs=100, batch_size=32,
+    def __init__(self, model, criterion, optim, dataset, k=10, epochs=100, batch_size=32,
             lr=0.001, random_state=42, kf_shuffle=True, PATH=None,
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")):
 
@@ -26,7 +28,7 @@ class PytorchKFold:
         self.epochs = epochs
         self.batch_size = batch_size
         # self.wd = wd
-        self.lr = lr
+        # self.lr = lr
 
         # reproducability states and shuffle states
         self.random_state = random_state
@@ -45,6 +47,7 @@ class PytorchKFold:
         self.all_folds_probabilities = {}
         self.all_folds_true = {}
         self.all_folds_val = {}
+        self.all_val_idx = {}
 
         self.reduce_sum = lambda x, *args, **kwargs: x.sum(*args, **kwargs)
         self.astype = lambda x, *args, **kwargs: x.type(*args, **kwargs)
@@ -61,7 +64,7 @@ class PytorchKFold:
             print(f'Fold {fold+1}')
 
             # set up model and place on gpu/cpu
-            self.model.apply(self.init_weights)
+            self.model.apply(init_weights)
             self.optim.load_state_dict(self.reset_optim)
 
             # get subset of training data given the kfold indices 
@@ -72,7 +75,6 @@ class PytorchKFold:
                     shuffle=True, num_workers=8)
             val_loader = DataLoader(val_sub, batch_size=self.batch_size, 
                     shuffle=False)
-
 
             # Main training loop
             train_loss, train_acc, val_loss, val_acc, train_history = self.train(train_loader, val_loader)
@@ -100,24 +102,19 @@ class PytorchKFold:
             self.all_folds_true[f'fold:{fold+1}'] = true
             self.all_folds_probabilities[f'fold:{fold+1}'] = probs
             self.all_folds_val[f'fold:{fold+1}'] = accuracy
+            self.all_val_idx[f'fold:{fold+1}'] = val_idx
 
-            # accumulate the fold metrics
-            avr_metrics.add(train_loss,
-                            train_acc,
-                            val_loss,
-                            val_acc)
 
             # print loss and accuracy metrics
             print(f'Train loss: {train_loss}')
             print(f'Validation accuracy: {accuracy}')
 
-
         # Calculate Averages across the folds
-        self.kfolds_avergs = {'num_folds': k,
-                       'train_loss': [avr_metrics[0]/k],
-                       'train_acc':[avr_metrics[1]/k],
-                       'val_loss': [avr_metrics[2]/k],
-                       'val_acc': [avr_metrics[3]/k],
+        self.kfolds_avergs = {'num_folds': self.k,
+                       'train_loss': [avr_metrics[0]/self.k],
+                       'train_acc':[avr_metrics[1]/self.k],
+                       'val_loss': [avr_metrics[2]/self.k],
+                       'val_acc': [avr_metrics[3]/self.k],
                        }
 
         return self.kfolds_avergs
@@ -220,13 +217,6 @@ class PytorchKFold:
         return train_sub, val_sub
 
 
-    # reset weights to prevent leakage in the kfolds 
-    def init_weights(self, m):
-        for layer in self.model.children():
-            if hasattr(layer, 'reset_parameters'):
-                layer.reset_parameters()
-
-
     # evaluate the accuracy of the model
     def accuracy(self, y_hat, y):
         y_hat = torch.round(y_hat)
@@ -242,33 +232,26 @@ class PytorchKFold:
         if isinstance(self.model, torch.nn.Module):
             self.model.eval()  # Set the model to evaluation mode
 
-        metric = Accumulator(3)  # No. of correct predictions, no. of predictions
+        metric = Accumulator(4)  # No. of correct predictions, no. of predictions
         with torch.no_grad():
             for X, y in data_iter:
                 X, y = X.to(self.device), y.to(self.device)
                 output = self.model(X)
                 loss = self.criterion(output, y)
-                metric.add(float(loss.sum()), self.accuracy((X),y), y.numel())
+                metric.add(float(loss.sum()), self.accuracy(output,y), y.numel(), 1)
 
         # return test loss and  accuracy
-        return metric[0] / metric[2], (metric[1] / metric[2])*100
+        return metric[0] / metric[3], (metric[1] / metric[2])*100
 
 
     def get_folds_data():
         return (self.all_folds_history, self.all_folds_predictions, self.all_folds_probabilities, self.all_folds_true, self.folds_val)
 
+    def get_val_idxs(self):
+        return self.all_val_idx
 
-# Accumulates metrics i wanna know in a smart form
-class Accumulator:
-    """For accumulating sums over `n` variables."""
-    def __init__(self, n):
-        self.data = [0.0] * n
+    def get_predictions(self):
+        return self.all_folds_predictions
 
-    def add(self, *args):
-        self.data = [a + float(b) for a, b in zip(self.data, args)]
-
-    def reset(self):
-        self.data = [0.0] * len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx]
+    def set_model(self, state_dict):
+        self.model.load_state_dict(state_dict)
