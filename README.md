@@ -7,8 +7,8 @@ Adapted from Zhang et al 2018 paper, 'Mitigating unwanted bias with hadversarial
 
 Packages:
 Python 3.8
-aif360, additionally if an error tensorflow and fairlearn may be needed
-pytorch
-scipy
-numpy
+aif360 (if an error tensorflow and fairlearn may be needed),
+pytorch,
+scipy,
+numpy,
 pandas
