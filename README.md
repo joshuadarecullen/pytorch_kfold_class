@@ -3,7 +3,7 @@ A class that implements kfold for pytorch for a standard model and an adversaria
 
 adv_main.py contains plotting and is the most complete showing of the kfold and fairness metric analysis.
 
-adapted from Zhang et al 2018 paper, 'Mitigating unwanted bias with hadversarial networks'
+Adapted from Zhang et al 2018 paper, 'Mitigating unwanted bias with hadversarial networks'
 
 Packages:
 Python 3.8
